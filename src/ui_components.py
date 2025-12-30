@@ -1350,34 +1350,42 @@ class RaceControlsComponent(BaseComponent):
             self.hover_button = 'speed_decrease'
         else:
             self.hover_button = None
+        return False
     
     def on_mouse_press(self, window, x: float, y: float, button: int, modifiers: int):
         """Handle button clicks."""
         if self._point_in_rect(x, y, self.rewind_rect):
-            # Rewind 10 frames
-            if hasattr(window, 'frame_index'):
+            # Update: Support hold-to-rewind
+            if hasattr(window, 'is_rewinding'):
+                window.was_paused_before_hold = window.paused
+                window.is_rewinding = True
+                window.paused = True
+            elif hasattr(window, 'frame_index'):
                 window.frame_index = int(max(0, window.frame_index - 10))
             return True
         elif self._point_in_rect(x, y, self.play_pause_rect):
-            # Toggle pause
             if hasattr(window, 'paused'):
                 window.paused = not window.paused
             return True
         elif self._point_in_rect(x, y, self.forward_rect):
-            # Forward 10 frames
-            if hasattr(window, 'frame_index') and hasattr(window, 'n_frames'):
+            # Update: Support hold-to-forward
+            if hasattr(window, 'is_forwarding'):
+                window.was_paused_before_hold = window.paused
+                window.is_forwarding = True
+                window.paused = True
+            elif hasattr(window, 'frame_index') and hasattr(window, 'n_frames'):
                 window.frame_index = int(min(window.n_frames - 1, window.frame_index + 10))
             return True
-        elif self._point_in_rect(x, y,self.speed_increase_rect):
-            # Increase speed
+        elif self._point_in_rect(x, y, self.speed_increase_rect):
             if hasattr(window, 'playback_speed'):
-                if window.playback_speed < 1024:
-                    window.playback_speed = window.playback_speed * 2
+                if window.playback_speed < 1024.0:
+                    window.playback_speed *= 2.0
+                    self.flash_button('speed_increase')
             return True
-        elif self._point_in_rect(x, y,self.speed_decrease_rect):
-            # Decrease speed
+        elif self._point_in_rect(x, y, self.speed_decrease_rect):
             if hasattr(window, 'playback_speed'):
-                window.playback_speed = max(0.1, window.playback_speed / 2)
+                window.playback_speed = max(0.1, window.playback_speed / 2.0)
+                self.flash_button('speed_decrease')
             return True
         return False
     

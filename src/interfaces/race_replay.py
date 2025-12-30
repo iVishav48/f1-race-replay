@@ -69,6 +69,10 @@ class F1RaceReplayWindow(arcade.Window):
             center_y=100,
             visible = visible_hud
         )
+
+        self.is_rewinding = False
+        self.is_forwarding = False
+        self.was_paused_before_hold = False
         
         # Extract race events for the progress bar
         race_events = extract_race_events(frames, track_statuses, total_laps or 0)
@@ -447,11 +451,21 @@ class F1RaceReplayWindow(arcade.Window):
         self.progress_bar_comp.draw_overlays(self)
                     
     def on_update(self, delta_time: float):
-        # Update race controls component (for flash animations)
         self.race_controls_comp.on_update(delta_time)
+        
+        seek_speed = 3.0 # Multiplier for seeking speed
+        if self.is_rewinding:
+            self.frame_index = max(0.0, self.frame_index - delta_time * FPS * seek_speed)
+            self.race_controls_comp.flash_button('rewind')
+        elif self.is_forwarding:
+            self.frame_index = min(self.n_frames - 1, self.frame_index + delta_time * FPS * seek_speed)
+            self.race_controls_comp.flash_button('forward')
+
         if self.paused:
             return
+
         self.frame_index += delta_time * FPS * self.playback_speed
+        
         if self.frame_index >= self.n_frames:
             self.frame_index = float(self.n_frames - 1)
 
@@ -460,11 +474,13 @@ class F1RaceReplayWindow(arcade.Window):
             self.paused = not self.paused
             self.race_controls_comp.flash_button('play_pause')
         elif symbol == arcade.key.RIGHT:
-            self.frame_index = min(self.frame_index + 10.0, self.n_frames - 1)
-            self.race_controls_comp.flash_button('forward')
+            self.was_paused_before_hold = self.paused
+            self.is_forwarding = True
+            self.paused = True
         elif symbol == arcade.key.LEFT:
-            self.frame_index = max(self.frame_index - 10.0, 0.0)
-            self.race_controls_comp.flash_button('rewind')
+            self.was_paused_before_hold = self.paused
+            self.is_rewinding = True
+            self.paused = True
         elif symbol == arcade.key.UP:
             if self.playback_speed < 1024.0:
                 self.playback_speed *= 2.0
@@ -493,18 +509,35 @@ class F1RaceReplayWindow(arcade.Window):
         elif symbol == arcade.key.B:
             self.progress_bar_comp.toggle_visibility() # toggle progress bar visibility
 
-    def on_mouse_press(self, x: float, y: float, button: int, modifiers: int):
-        # forward to components; stop at first that handled it
-        if self.race_controls_comp.on_mouse_press(self, x, y, button, modifiers):
-            return
-        if self.progress_bar_comp.on_mouse_press(self, x, y, button, modifiers):
-            return
-        if self.leaderboard_comp.on_mouse_press(self, x, y, button, modifiers):
-            return
-        # default: clear selection if clicked elsewhere
-        self.selected_driver = None
+    def on_key_release(self, symbol: int, modifiers: int):
+        if symbol == arcade.key.RIGHT:
+            self.is_forwarding = False
+            self.paused = self.was_paused_before_hold
+        elif symbol == arcade.key.LEFT:
+            self.is_rewinding = False
+            self.paused = self.was_paused_before_hold
+
+    def on_mouse_release(self, x: float, y: float, button: int, modifiers: int):
+        if self.is_forwarding or self.is_rewinding:
+            self.is_forwarding = False
+            self.is_rewinding = False
+            self.paused = self.was_paused_before_hold
         
     def on_mouse_motion(self, x: float, y: float, dx: float, dy: float):
         """Handle mouse motion for hover effects on progress bar and controls."""
         self.progress_bar_comp.on_mouse_motion(self, x, y, dx, dy)
         self.race_controls_comp.on_mouse_motion(self, x, y, dx, dy)
+
+    def on_mouse_press(self, x: float, y: float, button: int, modifiers: int):
+        """Handle mouse press events for UI components."""
+        # 1. Leaderboard
+        if self.leaderboard_comp.on_mouse_press(self, x, y, button, modifiers):
+            return
+
+        # 2. Progress Bar
+        if self.progress_bar_comp.on_mouse_press(self, x, y, button, modifiers):
+            return
+
+        # 3. Race Controls
+        if self.race_controls_comp.on_mouse_press(self, x, y, button, modifiers):
+            return

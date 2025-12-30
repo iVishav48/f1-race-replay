@@ -131,6 +131,10 @@ class QualifyingReplay(arcade.Window):
 
         self.update_scaling(self.width, self.height)
 
+        self.is_rewinding = False
+        self.is_forwarding = False
+        self.was_paused_before_hold = False
+
     def update_scaling(self, screen_w, screen_h):
         """
         Recalculates the scale and translation to fit the track 
@@ -820,13 +824,13 @@ class QualifyingReplay(arcade.Window):
             self.paused = not self.paused
             self.race_controls_comp.flash_button('play_pause')
         elif symbol == arcade.key.RIGHT:
-            # step forward by 10 frames (keep integer)
-            self.frame_index = int(min(self.frame_index + 10, max(0, self.n_frames - 1)))
-            self.race_controls_comp.flash_button('forward')
+            self.was_paused_before_hold = self.paused
+            self.is_forwarding = True
+            self.paused = True
         elif symbol == arcade.key.LEFT:
-            # step backward by 10 frames (keep integer)
-            self.frame_index = int(max(self.frame_index - 10, 0))
-            self.race_controls_comp.flash_button('rewind')
+            self.was_paused_before_hold = self.paused
+            self.is_rewinding = True
+            self.paused = True
         elif symbol == arcade.key.UP:
             if self.playback_speed < 1024.0:
                 self.playback_speed *= 2.0
@@ -978,15 +982,26 @@ class QualifyingReplay(arcade.Window):
             self.loading_message = ""
 
     def on_update(self, delta_time: float):
-        # time-based playback synced to telemetry timestamps
         if not self.chart_active or self.loaded_telemetry is None:
             return
-        if self.paused:
-            self.race_controls_comp.on_update(delta_time)
-            return
+            
         self.race_controls_comp.on_update(delta_time)
-        # advance play_time by delta_time scaled by playback_speed
-        self.play_time += delta_time * self.playback_speed
+        
+        # Block for continuous seeking
+        seek_speed = 3.0 
+        if self.is_rewinding:
+            self.play_time -= delta_time * seek_speed
+            self.race_controls_comp.flash_button('rewind')
+        elif self.is_forwarding:
+            self.play_time += delta_time * seek_speed
+            self.race_controls_comp.flash_button('forward')
+
+        if self.paused and not (self.is_rewinding or self.is_forwarding):
+            return
+        
+        if not (self.is_rewinding or self.is_forwarding):
+            self.play_time += delta_time * self.playback_speed
+
         # compute integer frame index from cached times (fast, robust)
         if self._times is not None and len(self._times) > 0:
             # clamp play_time into available range
@@ -1004,6 +1019,20 @@ class QualifyingReplay(arcade.Window):
             # Auto-pause when lap completes to prevent errors
             if self.frame_index >= self.n_frames - 1:
                 self.paused = True
+
+    def on_key_release(self, symbol: int, modifiers: int):
+        if symbol == arcade.key.RIGHT:
+            self.is_forwarding = False
+            self.paused = self.was_paused_before_hold
+        elif symbol == arcade.key.LEFT:
+            self.is_rewinding = False
+            self.paused = self.was_paused_before_hold
+
+    def on_mouse_release(self, x: float, y: float, button: int, modifiers: int):
+        if self.is_forwarding or self.is_rewinding:
+            self.is_forwarding = False
+            self.is_rewinding = False
+            self.paused = self.was_paused_before_hold
 
 def run_qualifying_replay(session, data, title="Qualifying Results", ready_file=None):
     window = QualifyingReplay(session=session, data=data, title=title)
